@@ -13,10 +13,9 @@ const App: React.FC = () => {
   
   const chatRef = useRef<any>(null);
 
-  useEffect(() => {
+  const initAI = () => {
     const apiKey = process.env.API_KEY;
-    
-    if (apiKey && apiKey !== "undefined" && !chatRef.current) {
+    if (apiKey && apiKey !== "undefined") {
       try {
         const ai = new GoogleGenAI({ apiKey });
         chatRef.current = ai.chats.create({
@@ -26,21 +25,26 @@ const App: React.FC = () => {
             temperature: 0.7,
           },
         });
-        
-        if (messages.length === 0) {
-          setMessages([{
-            role: 'model',
-            text: `✨ **Marhaba! Welcome to Polyglot Institute.**\n\nI'm **Lano**, your dedicated Education Advisor. How can I guide you today?`,
-            timestamp: new Date()
-          }]);
-        }
+        return true;
       } catch (err) {
-        console.error("Failed to initialize Gemini:", err);
+        console.error("AI Init Error:", err);
+        return false;
       }
+    }
+    return false;
+  };
+
+  useEffect(() => {
+    const success = initAI();
+    if (success && messages.length === 0) {
+      setMessages([{
+        role: 'model',
+        text: `✨ **Marhaba! Welcome to Polyglot Institute.**\n\nI'm **Lano**, your dedicated Education Advisor. How can I guide you today?`,
+        timestamp: new Date()
+      }]);
     }
   }, []);
 
-  // Cooldown timer logic
   useEffect(() => {
     if (cooldown > 0) {
       const timer = setTimeout(() => setCooldown(cooldown - 1), 1000);
@@ -52,17 +56,10 @@ const App: React.FC = () => {
     if (cooldown > 0) return;
 
     if (!chatRef.current) {
-        const apiKey = process.env.API_KEY;
-        if (apiKey && apiKey !== "undefined") {
-           try {
-             const ai = new GoogleGenAI({ apiKey });
-             chatRef.current = ai.chats.create({
-               model: 'gemini-3-flash-preview',
-               config: { systemInstruction: SYSTEM_PROMPT_TEMPLATE(INITIAL_BUSINESS_INFO.overview) },
-             });
-           } catch(e) { console.error(e); }
+        if (!initAI()) {
+          setMessages(prev => [...prev, { role: 'user', text, timestamp: new Date() }, { role: 'model', text: "❌ **API Key Missing**: Please set your API_KEY in Vercel or your environment variables.", timestamp: new Date() }]);
+          return;
         }
-        if (!chatRef.current) return;
     }
 
     const userMsg: Message = { role: 'user', text, timestamp: new Date() };
@@ -90,10 +87,10 @@ const App: React.FC = () => {
       let errorMessage = "I'm sorry, I encountered an error. Please reach us at +212 600 00 00 00.";
       
       if (errorStr.includes('429') || errorStr.includes('resource_exhausted')) {
-        setCooldown(60); // Set 60s cooldown
-        errorMessage = "⏳ **System Overloaded (Quota Reached)**\n\nGoogle's free AI tier has a limit. I need to take a quick **60-second break** to recharge.\n\nIn the meantime, feel free to call us at **+212 600 00 00 00**!";
+        setCooldown(60);
+        errorMessage = `⏳ **Quota Limit Reached**\n\nGoogle's free tier has a limit of requests per minute. \n\n1. **Wait 60 seconds** for the reset.\n2. **Check your usage**: [Google Cloud Console](https://console.cloud.google.com/apis/api/generativelanguage.googleapis.com/quotas)\n3. Or call us at **+212 600 00 00 00**!`;
       } else if (errorStr.includes('403')) {
-        errorMessage = "🔑 **API Key Issue**: Access denied. Please ensure your API key is active in Google AI Studio.";
+        errorMessage = "🔑 **Key Restricted**: Your API key doesn't have permission for this model. Check AI Studio.";
       }
 
       setMessages(prev => {
@@ -116,7 +113,7 @@ const App: React.FC = () => {
           isTyping={isTyping} 
           onClose={() => setIsOpen(false)}
           isDisabled={cooldown > 0}
-          placeholder={cooldown > 0 ? `Please wait ${cooldown}s...` : "Ask Lano anything..."}
+          placeholder={cooldown > 0 ? `Quota Reset in ${cooldown}s...` : "Ask Lano anything..."}
         />
       </div>
       {!isWidgetMode && (
@@ -143,7 +140,7 @@ const App: React.FC = () => {
       <div className="max-w-4xl mx-auto py-20 px-6 text-center flex-1 flex flex-col justify-center items-center">
         <div className="w-24 h-24 bg-[#022255] text-white rounded-[2.5rem] flex items-center justify-center text-4xl font-black mb-8 shadow-2xl">P</div>
         <h1 className="text-6xl md:text-7xl font-black text-[#022255] mb-6 tracking-tighter">Polyglot Nador</h1>
-        <p className="text-xl md:text-2xl text-slate-500 font-medium mb-12">The heart of accredited language education in Nador.</p>
+        <p className="text-xl md:text-2xl text-slate-500 font-medium mb-12 text-balance">The heart of accredited language education in Nador.</p>
         <div className="bg-white p-8 md:p-12 rounded-[3rem] shadow-xl border border-slate-100 max-w-lg w-full">
            <p className="text-slate-400 font-bold uppercase tracking-widest text-xs mb-8">Official AI Advisor</p>
            <button onClick={() => setIsOpen(true)} className="w-full bg-[#022255] text-white px-8 py-4 rounded-2xl font-bold hover:scale-105 transition-all shadow-lg active:scale-95">Chat with Lano</button>
