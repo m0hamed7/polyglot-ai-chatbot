@@ -8,22 +8,21 @@ const App: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const isWidgetMode = new URLSearchParams(window.location.search).get('mode') === 'widget';
   
   const chatRef = useRef<any>(null);
 
   useEffect(() => {
-    // Note: API_KEY is injected by Vite at build time via define
     const apiKey = process.env.API_KEY;
     
     if (apiKey && apiKey !== "undefined" && !chatRef.current) {
       try {
         const ai = new GoogleGenAI({ apiKey });
-        const knowledge = INITIAL_BUSINESS_INFO.overview;
         chatRef.current = ai.chats.create({
           model: 'gemini-3-flash-preview',
           config: {
-            systemInstruction: SYSTEM_PROMPT_TEMPLATE(knowledge),
+            systemInstruction: SYSTEM_PROMPT_TEMPLATE(INITIAL_BUSINESS_INFO.overview),
             temperature: 0.7,
           },
         });
@@ -31,21 +30,28 @@ const App: React.FC = () => {
         if (messages.length === 0) {
           setMessages([{
             role: 'model',
-            text: `✨ **Marhaba! Welcome to Polyglot Institute.**\n\nI'm **Lano**, your dedicated Education Advisor. Whether you're looking to master a new language or need academic support in Math & Physics, I'm here to help you.\n\nHow can I guide you today?`,
+            text: `✨ **Marhaba! Welcome to Polyglot Institute.**\n\nI'm **Lano**, your dedicated Education Advisor. How can I guide you today?`,
             timestamp: new Date()
           }]);
         }
       } catch (err) {
         console.error("Failed to initialize Gemini:", err);
       }
-    } else if (!apiKey || apiKey === "undefined") {
-      console.warn("API_KEY environment variable is missing. The chatbot will not function correctly.");
     }
   }, []);
 
+  // Cooldown timer logic
+  useEffect(() => {
+    if (cooldown > 0) {
+      const timer = setTimeout(() => setCooldown(cooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [cooldown]);
+
   const handleSendMessage = async (text: string) => {
+    if (cooldown > 0) return;
+
     if (!chatRef.current) {
-        // Retry initialization if key is now present or if it failed earlier
         const apiKey = process.env.API_KEY;
         if (apiKey && apiKey !== "undefined") {
            try {
@@ -54,16 +60,9 @@ const App: React.FC = () => {
                model: 'gemini-3-flash-preview',
                config: { systemInstruction: SYSTEM_PROMPT_TEMPLATE(INITIAL_BUSINESS_INFO.overview) },
              });
-           } catch(e) {
-             console.error("Retry init failed", e);
-           }
+           } catch(e) { console.error(e); }
         }
-
-        if (!chatRef.current) {
-          const errorMsg = "I'm still waking up! Please ensure the API_KEY is set and refresh the page.";
-          setMessages(prev => [...prev, { role: 'user', text, timestamp: new Date() }, { role: 'model', text: errorMsg, timestamp: new Date() }]);
-          return;
-        }
+        if (!chatRef.current) return;
     }
 
     const userMsg: Message = { role: 'user', text, timestamp: new Date() };
@@ -86,17 +85,19 @@ const App: React.FC = () => {
       }
     } catch (e: any) {
       console.error("Gemini Error:", e);
+      const errorStr = (JSON.stringify(e) || "").toLowerCase() + (e.message || "").toLowerCase();
+      
+      let errorMessage = "I'm sorry, I encountered an error. Please reach us at +212 600 00 00 00.";
+      
+      if (errorStr.includes('429') || errorStr.includes('resource_exhausted')) {
+        setCooldown(60); // Set 60s cooldown
+        errorMessage = "⏳ **System Overloaded (Quota Reached)**\n\nGoogle's free AI tier has a limit. I need to take a quick **60-second break** to recharge.\n\nIn the meantime, feel free to call us at **+212 600 00 00 00**!";
+      } else if (errorStr.includes('403')) {
+        errorMessage = "🔑 **API Key Issue**: Access denied. Please ensure your API key is active in Google AI Studio.";
+      }
+
       setMessages(prev => {
         const newMsgs = [...prev];
-        let errorMessage = "I'm sorry, I encountered an error. Please reach us at +212 600 00 00 00.";
-        
-        const errorStr = (JSON.stringify(e) || "").toLowerCase() + (e.message || "").toLowerCase();
-        if (errorStr.includes('429') || errorStr.includes('resource_exhausted') || errorStr.includes('quota')) {
-          errorMessage = "🚀 **High Demand!** We've reached our temporary limit with Google's AI. Please **wait 60 seconds** and try again, or contact our support directly at **+212 600 00 00 00** for immediate assistance.";
-        } else if (errorStr.includes('403')) {
-          errorMessage = "Access denied. This usually means the API key is invalid or restricted. Please check your AI Studio settings.";
-        }
-
         newMsgs[newMsgs.length - 1] = { ...newMsgs[newMsgs.length - 1], text: errorMessage };
         return newMsgs;
       });
@@ -114,6 +115,8 @@ const App: React.FC = () => {
           onReset={() => { localStorage.clear(); window.location.reload(); }}
           isTyping={isTyping} 
           onClose={() => setIsOpen(false)}
+          isDisabled={cooldown > 0}
+          placeholder={cooldown > 0 ? `Please wait ${cooldown}s...` : "Ask Lano anything..."}
         />
       </div>
       {!isWidgetMode && (
