@@ -13,6 +13,7 @@ const App: React.FC = () => {
   const chatRef = useRef<any>(null);
 
   useEffect(() => {
+    // Note: API_KEY is injected by Vite at build time via define
     const apiKey = process.env.API_KEY;
     
     if (apiKey && apiKey !== "undefined" && !chatRef.current) {
@@ -30,21 +31,39 @@ const App: React.FC = () => {
         if (messages.length === 0) {
           setMessages([{
             role: 'model',
-            text: `✨ **Marhaba! Welcome to Polyglot Institute.**\n\nI'm **Lano**, your dedicated Education Advisor. How can I guide you today?`,
+            text: `✨ **Marhaba! Welcome to Polyglot Institute.**\n\nI'm **Lano**, your dedicated Education Advisor. Whether you're looking to master a new language or need academic support in Math & Physics, I'm here to help you.\n\nHow can I guide you today?`,
             timestamp: new Date()
           }]);
         }
       } catch (err) {
         console.error("Failed to initialize Gemini:", err);
       }
+    } else if (!apiKey || apiKey === "undefined") {
+      console.warn("API_KEY environment variable is missing. The chatbot will not function correctly.");
     }
   }, []);
 
   const handleSendMessage = async (text: string) => {
     if (!chatRef.current) {
-        const errorMsg = "The AI is currently initializing. Please wait a moment or check your API key.";
-        setMessages(prev => [...prev, { role: 'user', text, timestamp: new Date() }, { role: 'model', text: errorMsg, timestamp: new Date() }]);
-        return;
+        // Retry initialization if key is now present or if it failed earlier
+        const apiKey = process.env.API_KEY;
+        if (apiKey && apiKey !== "undefined") {
+           try {
+             const ai = new GoogleGenAI({ apiKey });
+             chatRef.current = ai.chats.create({
+               model: 'gemini-3-flash-preview',
+               config: { systemInstruction: SYSTEM_PROMPT_TEMPLATE(INITIAL_BUSINESS_INFO.overview) },
+             });
+           } catch(e) {
+             console.error("Retry init failed", e);
+           }
+        }
+
+        if (!chatRef.current) {
+          const errorMsg = "I'm still waking up! Please ensure the API_KEY is set and refresh the page.";
+          setMessages(prev => [...prev, { role: 'user', text, timestamp: new Date() }, { role: 'model', text: errorMsg, timestamp: new Date() }]);
+          return;
+        }
     }
 
     const userMsg: Message = { role: 'user', text, timestamp: new Date() };
@@ -71,11 +90,11 @@ const App: React.FC = () => {
         const newMsgs = [...prev];
         let errorMessage = "I'm sorry, I encountered an error. Please reach us at +212 600 00 00 00.";
         
-        const errorStr = JSON.stringify(e);
-        if (errorStr.includes('429') || errorStr.includes('RESOURCE_EXHAUSTED')) {
-          errorMessage = "🚀 **High Demand!** We've reached our temporary limit. Please **wait 60 seconds** and try again, or contact us at +212 600 00 00 00.";
+        const errorStr = (JSON.stringify(e) || "").toLowerCase() + (e.message || "").toLowerCase();
+        if (errorStr.includes('429') || errorStr.includes('resource_exhausted') || errorStr.includes('quota')) {
+          errorMessage = "🚀 **High Demand!** We've reached our temporary limit with Google's AI. Please **wait 60 seconds** and try again, or contact our support directly at **+212 600 00 00 00** for immediate assistance.";
         } else if (errorStr.includes('403')) {
-          errorMessage = "Access denied. Please check if your API key is correctly set in Vercel.";
+          errorMessage = "Access denied. This usually means the API key is invalid or restricted. Please check your AI Studio settings.";
         }
 
         newMsgs[newMsgs.length - 1] = { ...newMsgs[newMsgs.length - 1], text: errorMessage };
